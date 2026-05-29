@@ -27,7 +27,7 @@ Planned macroeconomic indicators include unemployment rate, federal funds rate, 
 
 
 ## Planned Components
-- Spark DataFrames for ingestion, cleaning, feature engineering, and joins
+- Spark DataFrames for ingestion, cleaning, etc
 - Spark SQL for analysis
 - Spark Structured Streaming to simulate new loan originations
 - Spark MLlib for default prediction, Expected Loss, Transition matrix migration, New loans transition matrix migration
