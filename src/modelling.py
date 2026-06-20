@@ -7,18 +7,8 @@ from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.evaluation import BinaryClassificationEvaluator, MulticlassClassificationEvaluator
 from pyspark.ml.feature import Imputer, StringIndexer, VectorAssembler
 from pyspark.sql import SparkSession, Window
-from pyspark.sql.functions import (
-    avg,
-    coalesce,
-    col,
-    count,
-    lead,
-    least,
-    lit,
-    row_number,
-    sum as spark_sum,
-    when,
-)
+from pyspark.sql.functions import (avg, coalesce, col, count, lead,
+                                   lit, to_date, sum as spark_sum, when)
 from pyspark.ml.functions import vector_to_array
 
 spark = SparkSession.builder.appName("MortgageStressTestingModeling").getOrCreate()
@@ -103,8 +93,9 @@ def build_ml_pipeline():
 
     assembler = VectorAssembler(inputCols=feature_cols, outputCol="features", handleInvalid="keep")
 
-    logistic_regression = LogisticRegression(featuresCol="features", labelCol=LABEL_COL, 
-                                             predictionCol="prediction", probabilityCol="probability")
+    logistic_regression = LogisticRegression(featuresCol="features", labelCol=LABEL_COL,
+                                             predictionCol="prediction", probabilityCol="probability",
+                                             maxIter=20, tol=0.0001, regParam=0.01)
 
     return Pipeline(stages=indexers + [imputer, assembler, logistic_regression])
 
@@ -115,6 +106,23 @@ def train_pd_model(df):
     Can loan features and macroeconomic features predict serious delinquency risk?
     """
     training_data = prepare_training_data(df)
+
+    training_data = training_data.sample(withReplacement=False, 
+                                         fraction=0.1,
+                                         seed=50).repartition(64)
+
+    print("Number of records used for ML:")
+    print(training_data.count())
+
+    print("Label distribution in ML sample:")
+    training_data.groupBy(LABEL_COL).count().show()
+
+    label_count = training_data.select(LABEL_COL).distinct().count()
+
+    if label_count < 2:
+        raise ValueError(
+            "The sampled training data does not contain both label classes. "
+            "We must increase the sample fraction.")
 
     train_df, test_df = training_data.randomSplit([0.75, 0.25], seed=50)
 
@@ -153,19 +161,20 @@ def train_pd_model(df):
 
     confusion_matrix = predictions.groupBy(LABEL_COL, "prediction").count().orderBy(LABEL_COL, "prediction")
 
+    os.makedirs("outputs/ML", exist_ok=True)
     with open("outputs/ML/model_metrics.json", "w", encoding="utf-8") as file:
         json.dump(metrics, file, indent=2)
 
-    predictions_with_pd = caculate_credit_risk(predictions)
+    predictions_df = caculate_credit_risk(predictions)
 
-    predictions_with_pd = predictions_with_pd.select("loan_id", "reporting_month", LABEL_COL, 
+    predictions_df = predictions_df.select("loan_id", "reporting_month", LABEL_COL, 
                                                      "prediction", "pd", "pd_band", "expected_loss")
 
 
-    predictions_with_pd.coalesce(1).write.mode("overwrite").option("header", True).csv("outputs/ML/predictions_sample")
+    predictions_df.limit(10000).coalesce(1).write.mode("overwrite").option("header", True).csv("outputs/ML/predictions_sample")
     confusion_matrix.coalesce(1).write.mode("overwrite").option("header", True).csv("outputs/ML/confusion_matrix")
 
-    model.write().overwrite().save("outputs/pd_logistic_regression")
+    model.write().overwrite().save("outputs/models/pd_logistic_regression")
 
     print("Model metrics:")
     print(json.dumps(metrics, indent=2))
@@ -233,8 +242,7 @@ def build_transition_matrix(df):
         .agg(count("*").alias("transition_count"))
 
     from_totals_df = state_counts_df.groupBy("from_state").agg(
-        spark_sum("transition_count").alias("from_state_total")
-    )
+        spark_sum("transition_count").alias("from_state_total"))
 
     transition_matrix = state_counts_df\
         .join(from_totals_df, on="from_state", how="inner")\

@@ -36,7 +36,7 @@ selected_df = df.select(col("_c1").alias("loan_id"),
                         col("_c13").alias("origination_date"),
                         col("_c14").alias("first_payment_date"),
                         col("_c15").cast("int").alias("loan_age"),
-                        col("_c17").alias("remaining_months_to_maturity"),
+                        col("_c17").cast("int").alias("remaining_months_to_maturity"),
                         col("_c18").alias("maturity_date"),
                         col("_c19").cast("double").alias("original_ltv"),
                         col("_c20").cast("double").alias("original_cltv"),
@@ -55,7 +55,8 @@ selected_df = df.select(col("_c1").alias("loan_id"),
 mortgage_df = selected_df.withColumn("is_seriously_delinquent", 
                                      when(col("current_loan_delinquency") >= 3, 1)\
                                         .otherwise(0))\
-                        .withColumn("reporting_month", date_format(to_date(col("monthly_reporting_period"), "MMyyyy"), "yyyy-MM"))\
+                        .withColumn("reporting_date", to_date(col("monthly_reporting_period"), "MMyyyy")) \
+                        .withColumn("reporting_month", date_format(col("reporting_date"), "yyyy-MM"))\
                         .withColumn("credit_score_band", 
                                when(col("borrower_credit_score").isNull(), "Missing")
                               .when((col("borrower_credit_score") >= 0) & (col("borrower_credit_score") < 620), "Poor")
@@ -86,7 +87,13 @@ mortgage_df = selected_df.withColumn("is_seriously_delinquent",
                             .when(col("current_actual_upb") < 100000, "<100K")
                             .when(col("current_actual_upb") < 250000, "100K-249K")
                             .when(col("current_actual_upb") < 500000, "250K-499K")
-                            .otherwise("500K+"))
+                            .otherwise("500K+"))\
+                        .withColumn("risk_state", when(col("current_loan_delinquency").isNull(), "Missing")
+                           .when(col("current_loan_delinquency") == 0, "Current")
+                           .when(col("current_loan_delinquency") == 1, "30 DPD")
+                           .when(col("current_loan_delinquency") == 2, "60 DPD")
+                           .otherwise("90+ DPD"))
+
 
 
 ## Downloading the FRED data and transformiung it to select only 2025 data
@@ -130,9 +137,9 @@ modeling_df = mortgage_df.join(fred_2025, on="reporting_month", how="left")
 
 print("Mortgage data joined with FRED data:")
 
-# Save the datasets needed by the modeling and EDA process
+# Save the datasets needed by the modeling, EDA process and streaming
 mortgage_df.write.mode("overwrite").parquet("data/processed/cleaned_mortgage.parquet")
-
+fred_2025.write.mode("overwrite").parquet("data/processed/fred_monthly.parquet")
 modeling_df.write.mode("overwrite").parquet("data/processed/modeling_base.parquet")
 
 

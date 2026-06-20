@@ -15,7 +15,7 @@ spark.sparkContext.setLogLevel("ERROR")
 
 MODELING_INPUT_PATH = "data/processed/modeling_base.parquet"
 FRED_INPUT_PATH = "data/processed/fred_monthly.parquet"
-MODEL_INPUT_PATH = "models/pd_logistic_regression"
+MODEL_INPUT_PATH = "outputs/pd_logistic_regression"
 STREAM_INPUT_PATH = "data/stream/incoming"
 STREAM_OUTPUT_PATH = "outputs/streaming"
 CHECKPOINT_PATH = "checkpoints/streaming_growth"
@@ -118,12 +118,6 @@ def score_streaming_loans():
              spark_sum("ead").alias("total_ead"),
              spark_sum("expected_loss").alias("total_expected_loss"))
 
-    def write_batch(batch_df, batch_id: int) -> None:
-        print(f"Streaming batch {batch_id}")
-        batch_df.show(truncate=False)
-        batch_df.coalesce(1).write.mode("overwrite").option("header", True).csv(
-            os.path.join(STREAM_OUTPUT_PATH, f"batch_{batch_id}"))
-
     query = aggregated.writeStream.foreachBatch(write_batch).outputMode("complete")\
              .option("checkpointLocation", CHECKPOINT_PATH).trigger(availableNow=True)\
                 .start()
@@ -132,10 +126,38 @@ def score_streaming_loans():
     print(f"Streaming outputs written to {STREAM_OUTPUT_PATH}")
 
 
+def write_batch(batch_df, batch_id):
+    """
+    Write each completed streaming micro-batch to CSV.
+
+    The Spark window column is a struct containing start and end.
+    CSV cannot directly store a struct, so the code separates it into
+    window_start and window_end before writing.
+    """
+
+    output_df = batch_df.select(
+        col("window.start").alias("window_start"),
+        col("window.end").alias("window_end"),
+        col("pd_band"),
+        col("new_loan_count"),
+        col("avg_pd"),
+        col("total_ead"),
+        col("total_expected_loss")
+    )
+
+    print(f"Writing streaming batch {batch_id}")
+
+    output_df.show(truncate=False)
+
+    output_df.coalesce(1).write \
+        .mode("overwrite") \
+        .option("header", True) \
+        .csv(f"outputs/streaming/batch_{batch_id}")
+
 def main() -> None:
     reset_stream_folders()
-    create_streaming_events(spark)
-    score_streaming_loans(spark)
+    create_streaming_events()
+    score_streaming_loans()
     print("Streaming simulation complete.")
     spark.stop()
 
