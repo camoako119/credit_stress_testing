@@ -51,6 +51,9 @@ selected_df = df.select(col("_c1").alias("loan_id"),
                         col("_c39").cast("int").alias("current_loan_delinquency"))
 
 
+# selected_df.select("maturity_date").distinct().orderBy("current_loan_delinquency").show()
+
+
 # Creating my own columns that I will use in the modelling and EDA process
 mortgage_df = selected_df.withColumn("is_seriously_delinquent", 
                                      when(col("current_loan_delinquency") >= 3, 1)\
@@ -135,7 +138,9 @@ fred_2025.coalesce(1).write.mode("overwrite").option("header", "true").csv("outp
 
 modeling_df = mortgage_df.join(fred_2025, on="reporting_month", how="left")
 
-print("Mortgage data joined with FRED data:")
+print("Mortgage data joined with FRED data")
+
+print("Saving the datasets")
 
 # Save the datasets needed by the modeling, EDA process and streaming
 mortgage_df.write.mode("overwrite").parquet("data/processed/cleaned_mortgage.parquet")

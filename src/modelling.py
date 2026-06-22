@@ -2,7 +2,7 @@
 import json
 import os
 
-from pyspark.ml import Pipeline
+from pyspark.ml import Pipeline, PipelineModel
 from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.evaluation import BinaryClassificationEvaluator, MulticlassClassificationEvaluator
 from pyspark.ml.feature import Imputer, StringIndexer, VectorAssembler
@@ -94,8 +94,7 @@ def build_ml_pipeline():
     assembler = VectorAssembler(inputCols=feature_cols, outputCol="features", handleInvalid="keep")
 
     logistic_regression = LogisticRegression(featuresCol="features", labelCol=LABEL_COL,
-                                             predictionCol="prediction", probabilityCol="probability",
-                                             maxIter=20, tol=0.0001, regParam=0.01)
+                                             predictionCol="prediction", probabilityCol="probability")
 
     return Pipeline(stages=indexers + [imputer, assembler, logistic_regression])
 
@@ -168,7 +167,7 @@ def train_pd_model(df):
     predictions_df = caculate_credit_risk(predictions)
 
     predictions_df = predictions_df.select("loan_id", "reporting_month", LABEL_COL, 
-                                                     "prediction", "pd", "pd_band", "expected_loss")
+                                            "prediction", "pd", "pd_band", "expected_loss")
 
 
     predictions_df.limit(10000).coalesce(1).write.mode("overwrite").option("header", True).csv("outputs/ML/predictions_sample")
@@ -266,6 +265,15 @@ def main() -> None:
 
     build_transition_matrix(modeling_df)
     train_pd_model(modeling_df)
+
+    loaded_model = PipelineModel.load("outputs/models/pd_logistic_regression")
+
+    # Get the logistic regression stage (it's the last stage)
+    lr_model = loaded_model.stages[-1]
+
+    # Print the coefficients
+    print("Intercept:", lr_model.intercept)
+    print("Coefficients:", lr_model.coefficients)
 
     print("Modeling and scenario analysis complete.")
     spark.stop()

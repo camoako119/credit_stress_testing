@@ -15,7 +15,7 @@ spark.sparkContext.setLogLevel("ERROR")
 
 MODELING_INPUT_PATH = "data/processed/modeling_base.parquet"
 FRED_INPUT_PATH = "data/processed/fred_monthly.parquet"
-MODEL_INPUT_PATH = "outputs/pd_logistic_regression"
+MODEL_INPUT_PATH = "outputs/models/pd_logistic_regression"
 STREAM_INPUT_PATH = "data/stream/incoming"
 STREAM_OUTPUT_PATH = "outputs/streaming"
 CHECKPOINT_PATH = "checkpoints/streaming_growth"
@@ -154,7 +154,7 @@ def write_batch(batch_df, batch_id):
         .option("header", True) \
         .csv(f"outputs/streaming/batch_{batch_id}")
 
-def main() -> None:
+def main():
     reset_stream_folders()
     create_streaming_events()
     score_streaming_loans()
